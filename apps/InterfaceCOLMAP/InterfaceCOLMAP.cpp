@@ -776,7 +776,9 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 
 	// read images list
 	typedef std::map<COLMAP::Image, uint32_t> ImagesMap;
+	typedef std::unordered_map<uint32_t, uint32_t> ImageIDsMap;
 	ImagesMap mapImages;
+	ImageIDsMap mapImageIDs;
 	{
 		const String filenameImagesTXT(strFolder+COLMAP_IMAGES_TXT);
 		const String filenameImagesBIN(strFolder+COLMAP_IMAGES_BIN);
@@ -790,7 +792,9 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 
 		COLMAP::Image imageColmap;
 		while (file.good() && imageColmap.Read(file, binary)) {
-			mapImages.emplace(imageColmap, (uint32_t)scene.images.size());
+			const uint32_t imageIdx((uint32_t)scene.images.size());
+			mapImages.emplace(imageColmap, imageIdx);
+			mapImageIDs.emplace(imageColmap.ID, imageIdx);
 			Interface::Platform::Pose pose;
 			Eigen::Map<EMat33d>(pose.R.val) = imageColmap.q.toRotationMatrix();
 			EnsureRotationMatrix((Matrix3x3d&)pose.R);
@@ -799,7 +803,7 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 			image.name = MAKE_PATH_REL(strOutFolder,OPT::strImageFolder+imageColmap.name);
 			image.platformID = mapCameras.at(imageColmap.idCamera);
 			image.cameraID = 0;
-			image.ID = imageColmap.ID;
+			image.ID = imageIdx;
 			Interface::Platform& platform = scene.platforms[image.platformID];
 			image.poseID = (uint32_t)platform.poses.size();
 			platform.poses.emplace_back(pose);
@@ -827,7 +831,7 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 			vertex.X = point.p;
 			for (const COLMAP::Point::Track& track: point.tracks) {
 				Interface::Vertex::View view;
-				view.imageID = mapImages.at(COLMAP::Image(track.idImage));
+				view.imageID = mapImageIDs.at(track.idImage);
 				view.confidence = 0;
 				vertex.views.emplace_back(view);
 			}
@@ -864,7 +868,7 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 			for (uint32_t v=0; v<numViews; ++v) {
 				uint32_t imageID;
 				file.read(&imageID, sizeof(uint32_t));
-				views.emplace_back(imageID);
+				views.emplace_back(mapImageIDs.at(imageID));
 			}
 			views.Sort();
 		}
