@@ -4,16 +4,27 @@ run-name: ${{ github.actor }} is building OpenMVS
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [master, develop]
   pull_request:
     branches: [master, develop]
+  schedule:
+    - cron: '23 23 * * 5'
   # Allows to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 env:
+  BUILD_DIR: make
   CTEST_OUTPUT_ON_FAILURE: 1
+  CI_PARALLEL_JOBS: 2
+  VCPKG_FEATURE_FLAGS: manifests,binarycaching,registries
+  VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+  VCPKG_COMMIT: 'c3867e714dd3a51c272826eea77267876517ed99'
 
 defaults:
   run:
@@ -22,6 +33,7 @@ defaults:
 jobs:
   build-tests:
     name: Build on ${{ matrix.os }}
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -30,31 +42,36 @@ jobs:
           - os: windows-latest
             triplet: x64-windows-release
             build-type: Release
+            cmake-extra-args: -A x64
+            artifact-name: OpenMVS_Windows_Release_x64
           - os: ubuntu-latest
             triplet: x64-linux-release
             build-type: Release
+            cmake-extra-args: -G Ninja
+            artifact-name: OpenMVS_Ubuntu_Release_x64
           - os: macos-latest
             triplet: arm64-osx
             build-type: Release
+            cmake-extra-args: -G Ninja
+            artifact-name: OpenMVS_macOS_Release_arm64
     env:
-      # Turn on manifests and binary caching; use the GHA backend
-      VCPKG_FEATURE_FLAGS: manifests,binarycaching,registries
-      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
       VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-      VCPKG_COMMIT: 'ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0'
 
     steps:
-      - name: Checkout
+      - &checkout-step
+        name: Checkout
         uses: actions/checkout@v4
 
-      - name: Export GitHub Actions cache environment variables
+      - &export-cache-env-step
+        name: Export GitHub Actions cache environment variables
         uses: actions/github-script@v7
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Setup vcpkg and cache artifacts
+      - &setup-vcpkg-step
+        name: Setup vcpkg and cache artifacts
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
@@ -63,58 +80,64 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y autoconf-archive libxmu-dev libdbus-1-dev libxtst-dev libxi-dev libxinerama-dev libxcursor-dev xorg-dev libgl-dev libglu1-mesa-dev autoconf automake bison libtool libltdl-dev pkg-config ninja-build
+          sudo apt-get install -y autoconf-archive libxmu-dev libdbus-1-dev libxtst-dev libxi-dev libxinerama-dev libxcursor-dev xorg-dev libgl-dev libglu1-mesa-dev autoconf automake bison libtool libltdl-dev pkg-config nasm ninja-build
 
       - name: Install macOS dependencies
         if: matrix.os == 'macos-latest'
         run: |
           brew install automake autoconf autoconf-archive libtool ninja
 
-      - name: Configure CMake for Windows
-        if: matrix.os == 'windows-latest'
+      - name: Configure CMake
         run: |
-          cmake -S . -B make -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DOpenMVS_USE_CUDA=OFF
-
-      - name: Configure CMake for Ubuntu and macOS
-        if: matrix.os != 'windows-latest'
-        run: |
-          cmake -S . -B make -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DOpenMVS_USE_CUDA=OFF -G Ninja
+          cmake -S . -B ${{ env.BUILD_DIR }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DVCPKG_ROOT=${{ env.VCPKG_ROOT }} -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DOpenMVS_USE_CUDA=OFF ${{ matrix.cmake-extra-args }}
 
       - name: Build
-        working-directory: ./make
+        working-directory: ./${{ env.BUILD_DIR }}
         run: |
           rm -rf ../vcpkg/buildtrees
           rm -rf ../vcpkg/downloads
-          cmake --build . --config ${{ matrix.build-type }} --parallel $(nproc)
+          cmake --build . --config ${{ matrix.build-type }} --parallel ${{ env.CI_PARALLEL_JOBS }}
 
       - name: Unit Tests
-        working-directory: ./make
+        working-directory: ./${{ env.BUILD_DIR }}
         run: |
-          ctest -j$(nproc) --build-config ${{ matrix.build-type }}
+          ctest --parallel ${{ env.CI_PARALLEL_JOBS }} --build-config ${{ matrix.build-type }}
 
-      - name: Deploy Windows release
-        if: matrix.os == 'windows-latest'
+      - name: Deploy release
         uses: actions/upload-artifact@v4
         with:
-          name: OpenMVS_Windows_Release_x64
+          name: ${{ matrix.artifact-name }}
           path: |
-            ${{ github.workspace }}/make/bin/**/x64
-            !${{ github.workspace }}/make/bin/**/*.exp
+            ${{ github.workspace }}/${{ env.BUILD_DIR }}/bin/**
+            !${{ github.workspace }}/${{ env.BUILD_DIR }}/bin/**/*.exp
 
-      - name: Deploy Ubuntu release
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenMVS_Ubuntu_Release_x64
-          path: |
-            ${{ github.workspace }}/make/bin/**
-            !${{ github.workspace }}/make/bin/**/*.exp
+  msvc-code-analysis:
+    name: MSVC Code Analysis
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows-release
 
-      - name: Deploy macOS release
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
+    steps:
+      - *checkout-step
+      - *export-cache-env-step
+      - *setup-vcpkg-step
+
+      - name: Configure CMake for MSVC analysis
+        run: |
+          cmake -S . -B ${{ env.BUILD_DIR }} -A x64 -DCMAKE_CONFIGURATION_TYPES=Release -DVCPKG_ROOT=${{ env.VCPKG_ROOT }} -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_DEFAULT_TRIPLET }} -DOpenMVS_USE_CUDA=OFF
+
+      - name: Initialize MSVC Code Analysis
+        uses: microsoft/msvc-code-analysis-action@04825f6d9e00f87422d6bf04e1a38b1f3ed60d99
+        id: run-analysis
         with:
-          name: OpenMVS_macOS_Release_arm64
-          path: |
-            ${{ github.workspace }}/make/bin/**
-            !${{ github.workspace }}/make/bin/**/*.exp
+          cmakeBuildDirectory: ${{ env.BUILD_DIR }}
+          ruleset: NativeRecommendedRules.ruleset
+
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.run-analysis.outputs.sarif }}
