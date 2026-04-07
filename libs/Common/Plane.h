@@ -27,7 +27,6 @@ class TPlane
 	STATIC_ASSERT(DIMS > 0 && DIMS <= 3);
 
 public:
-	typedef Eigen::Matrix<TYPE,DIMS+1,DIMS+1,Eigen::RowMajor> MATRIX;
 	typedef Eigen::Matrix<TYPE,DIMS,1> VECTOR;
 	typedef Eigen::Matrix<TYPE,DIMS,1> POINT;
 	typedef SEACAVE::TAABB<TYPE,DIMS> AABB;
@@ -45,13 +44,11 @@ public:
 	inline TPlane(const VECTOR&, const POINT&);
 	inline TPlane(const POINT&, const POINT&, const POINT&);
 	inline TPlane(const TYPE p[DIMS+1]);
-	inline TPlane(const Eigen::Matrix<TYPE,DIMS+1,1>&);
 
 	inline void Set(const VECTOR&, TYPE);
 	inline void Set(const VECTOR&, const POINT&);
 	inline void Set(const POINT&, const POINT&, const POINT&);
 	inline void Set(const TYPE p[DIMS+1]);
-	inline void Set(const Eigen::Matrix<TYPE,DIMS+1,1>&);
 
 	int Optimize(const POINT*, size_t, int maxIters=100);
 	template <typename RobustNormFunctor>
@@ -62,9 +59,6 @@ public:
 
 	inline void Negate();
 	inline TPlane Negated() const;
-
-	inline TPlane Transformed(const MATRIX&) const;
-	inline TPlane& Transform(const MATRIX&);
 
 	inline TYPE Distance(const TPlane&) const;
 	inline TYPE Distance(const POINT&) const;
@@ -109,7 +103,7 @@ struct FitPlaneOnline {
 /*----------------------------------------------------------------*/
 
 
-// Basic 3D frustum class
+// Basic frustum class
 // (represented as 6 planes oriented toward outside the frustum volume)
 template <typename TYPE, int DIMS=6>
 class TFrustum
@@ -119,25 +113,27 @@ class TFrustum
 public:
 	typedef Eigen::Matrix<TYPE,4,4,Eigen::RowMajor> MATRIX4x4;
 	typedef Eigen::Matrix<TYPE,3,4,Eigen::RowMajor> MATRIX3x4;
+	typedef Eigen::Matrix<TYPE,4,1> VECTOR4;
 	typedef Eigen::Matrix<TYPE,3,1> VECTOR;
 	typedef Eigen::Matrix<TYPE,3,1> POINT;
 	typedef SEACAVE::TPlane<TYPE,3> PLANE;
 	typedef SEACAVE::TSphere<TYPE,3> SPHERE;
 	typedef SEACAVE::TAABB<TYPE,3> AABB;
-	enum { numCorners = (1<<3) };
 
 	PLANE	m_planes[DIMS];	// left, right, top, bottom, near and far planes
 
 	//---------------------------------------
 
 	inline TFrustum() {}
-	inline TFrustum(const MATRIX4x4&, TYPE width, TYPE height, TYPE nearZ=TYPE(0.0001), TYPE farZ=TYPE(1000));
-	inline TFrustum(const MATRIX3x4&, TYPE width, TYPE height, TYPE nearZ=TYPE(0.0001), TYPE farZ=TYPE(1000));
+	inline TFrustum(const MATRIX4x4&);
+	inline TFrustum(const MATRIX3x4&);
+	inline TFrustum(const MATRIX4x4&, TYPE width, TYPE height, TYPE near=TYPE(0.0001), TYPE far=TYPE(1000));
+	inline TFrustum(const MATRIX3x4&, TYPE width, TYPE height, TYPE near=TYPE(0.0001), TYPE far=TYPE(1000));
 
-	void Set(const MATRIX4x4&, TYPE width, TYPE height, TYPE nearZ=TYPE(0.0001), TYPE farZ=TYPE(1000));
-	void Set(const MATRIX3x4&, TYPE width, TYPE height, TYPE nearZ=TYPE(0.0001), TYPE farZ=TYPE(1000));
-	void Set(const VECTOR corners[numCorners]);
-	void SetProjectionGL(const MATRIX4x4&);
+	template <int MODE> void Set(const MATRIX4x4&);
+	template <int MODE> void Set(const MATRIX3x4&);
+	void Set(const MATRIX4x4&, TYPE width, TYPE height, TYPE near=TYPE(0.0001), TYPE far=TYPE(1000));
+	void Set(const MATRIX3x4&, TYPE width, TYPE height, TYPE near=TYPE(0.0001), TYPE far=TYPE(1000));
 
 	GCLASS Classify(const POINT&) const;
 	GCLASS Classify(const SPHERE&) const;

@@ -1871,8 +1871,7 @@ void SemiGlobalMatcher::Disparity2DepthMap(const DisparityMap& disparityMap, con
 		auto pixel = [&](int, int r, int c) {
 			const ImageRef x(c,r); Point2f u;
 			ProjectVertex_3x3_2_2(H.val, x.ptr(), u.ptr());
-			u.x -= (float)halfWindowSizeX;
-			u.y -= (float)halfWindowSizeY;
+			u.x -= halfWindowSizeX; u.y -= halfWindowSizeY;
 			float disparity;
 			if (!disparityMap.sampleSafe(disparity, u, [](Disparity d) { return d != NO_DISP; })) {
 				depthMap(x) = 0;
@@ -1898,8 +1897,7 @@ void SemiGlobalMatcher::Disparity2DepthMap(const DisparityMap& disparityMap, con
 		auto pixel = [&](int, int r, int c) {
 			const ImageRef x(c,r); Point2f u;
 			ProjectVertex_3x3_2_2(H.val, x.ptr(), u.ptr());
-			u.x -= (float)halfWindowSizeX;
-			u.y -= (float)halfWindowSizeY;
+			u.x -= halfWindowSizeX; u.y -= halfWindowSizeY;
 			float disparity;
 			if (!disparityMap.sampleSafe(disparity, u, [](Disparity d) { return d != NO_DISP; }))
 				depthMap(x) = 0;
@@ -2224,7 +2222,7 @@ bool SemiGlobalMatcher::ExportDisparityMap(const String& fileName, const Dispari
 } // ExportDisparityMap
 
 
-// export point-cloud
+// export point cloud
 bool SemiGlobalMatcher::ExportPointCloud(const String& fileName, const Image& imageData, const DisparityMap& disparityMap, const Matrix4x4& Q, Disparity subpixelSteps)
 {
 	ASSERT(!disparityMap.empty());

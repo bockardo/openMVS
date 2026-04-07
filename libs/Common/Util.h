@@ -183,10 +183,10 @@ public:
 		std::ostringstream os;
 		os.precision(3);
 		os << sTitle << "\n";
-		os << "<" << Start << "\t|\t" << Underflow << "\n";
-		for (size_t i = 0, n = Freq.size(); i < n; ++i)
+		const size_t n(Freq.size());
+		for (size_t i = 0; i < n; ++i)
 			os << static_cast<float>(End-Start)/n*static_cast<float>(i) << "\t|\t" << Freq[i] << "\n";
-		os << ">=" << End << "\t|\t" << Overflow << "\n";
+		os << End << "\n";
 		return os.str();
 	}
 
@@ -205,9 +205,9 @@ class GENERAL_API Util
 public:
 	static String getAppName() {
 		#ifdef _MSC_VER
-		String buf(MAX_PATH+1, '\0');
-		GetModuleFileName(NULL, &buf.front(), MAX_PATH);
-		return ensureUnifySlash(buf);
+		TCHAR buf[MAX_PATH+1];
+		GetModuleFileName(NULL, buf, MAX_PATH);
+		return ensureUnifySlash(String(buf));
 		#else // _MSC_VER
 		LPTSTR home = getenv("HOME");
 		if (home == NULL)
@@ -457,10 +457,7 @@ public:
 	}
 
 	static String getFilePath(const String& path) {
-		const String::size_type size = path.size();
-		if (size < 3)
-			return String();
-		const String::size_type i = path.rfind(PATH_SEPARATOR, size-2);
+		const String::size_type i = path.rfind(PATH_SEPARATOR);
 		return (i != String::npos) ? path.substr(0, i+1) : String();
 	}
 	static String getFileFullName(const String& path) {
@@ -598,34 +595,34 @@ public:
 		uint32_t rez = (uint32_t)(sTime / ((int64_t)24*3600*1000));
 		if (rez) {
 			++nrNumbers;
-			len += _sntprintf(buf, 128, "%ud", rez);
+			len += _stprintf(buf+len, "%ud", rez);
 		}
 		if (nAproximate > 3 && nrNumbers > 0)
 			return buf;
 		rez = (uint32_t)((sTime%((int64_t)24*3600*1000)) / (3600*1000));
 		if (rez) {
 			++nrNumbers;
-			len += _sntprintf(buf+len, 128-len, "%uh", rez);
+			len += _stprintf(buf+len, "%uh", rez);
 		}
 		if (nAproximate > 2 && nrNumbers > 0)
 			return buf;
 		rez = (uint32_t)((sTime%((int64_t)3600*1000)) / (60*1000));
 		if (rez) {
 			++nrNumbers;
-			len += _sntprintf(buf+len, 128-len, "%um", rez);
+			len += _stprintf(buf+len, "%um", rez);
 		}
 		if (nAproximate > 1 && nrNumbers > 0)
 			return buf;
 		rez = (uint32_t)((sTime%((int64_t)60*1000)) / (1*1000));
 		if (rez) {
 			++nrNumbers;
-			len += _sntprintf(buf+len, 128-len, "%us", rez);
+			len += _stprintf(buf+len, "%us", rez);
 		}
 		if (nAproximate > 0 && nrNumbers > 0)
 			return buf;
 		rez = (uint32_t)(sTime%((int64_t)1*1000));
 		if (rez || !nrNumbers)
-			len += _sntprintf(buf+len, 128-len, "%ums", rez);
+			len += _stprintf(buf+len, "%ums", rez);
 
 		return String(buf, len);
 	}
@@ -699,6 +696,54 @@ public:
 	}
 
 
+	/**
+	 * IPRT - CRC64.
+	 *
+	 * The method to compute the CRC64 is referred to as CRC-64-ISO:
+	 *     http://en.wikipedia.org/wiki/Cyclic_redundancy_check
+	 * The generator polynomial is x^64 + x^4 + x^3 + x + 1.
+	 *     Reverse polynom: 0xd800000000000000ULL
+	 *     
+	 * As in: http://www.virtualbox.org/svn/vbox/trunk/src/VBox/Runtime/common/checksum/crc64.cpp
+	 */
+
+	/**
+	 * Calculate CRC64 for a memory block.
+	 *
+	 * @returns CRC64 for the memory block.
+	 * @param   pv      Pointer to the memory block.
+	 * @param   cb      Size of the memory block in bytes.
+	 */
+	static uint64_t CRC64(const void *pv, size_t cb);
+
+	/**
+	 * Start a multiblock CRC64 calculation.
+	 *
+	 * @returns Start CRC64.
+	 */
+	static uint64_t CRC64Start() {
+		return 0ULL;
+	}
+	/**
+	 * Processes a multiblock of a CRC64 calculation.
+	 *
+	 * @returns Intermediate CRC64 value.
+	 * @param   uCRC64  Current CRC64 intermediate value.
+	 * @param   pv      The data block to process.
+	 * @param   cb      The size of the data block in bytes.
+	 */
+	static uint64_t CRC64Process(uint64_t uCRC64, const void *pv, size_t cb);
+	/**
+	 * Complete a multiblock CRC64 calculation.
+	 *
+	 * @returns CRC64 value.
+	 * @param   uCRC64  Current CRC64 intermediate value.
+	 */
+	static uint64_t CRC64Finish(uint64_t uCRC64) {
+		return uCRC64;
+	}
+
+
 	static void		Init();
 
 	static String	GetCPUInfo();
@@ -710,16 +755,6 @@ public:
 
 	static void		LogBuild();
 	static void		LogMemoryInfo();
-
-	struct MemoryInfo {
-		size_t totalPhysical;
-		size_t freePhysical;
-		size_t totalVirtual;
-		size_t freeVirtual;
-		MemoryInfo(size_t tP = 0, size_t fP = 0, size_t tV = 0, size_t fV = 0)
-			: totalPhysical(tP), freePhysical(fP), totalVirtual(tV), freeVirtual(fV) {}
-	};
-	static MemoryInfo GetMemoryInfo();
 
 	static LPSTR* CommandLineToArgvA(LPCSTR CmdLine, size_t& _argc);
 	static String CommandLineToString(size_t argc, LPCTSTR* argv) {
@@ -789,6 +824,49 @@ public:
 			lastMsgLen = msgLen;
 		}
 	};
+
+	template<typename T>
+	static std::pair<T,T> ComputePercentileMinMax(const T *data, size_t size){
+		if (size == 0) 
+			return std::make_pair(0, 0);
+
+		// Find min/max
+		T aMin = data[0];
+		T aMax = data[0];
+
+		for (size_t i = 1; i < size; i++) {
+			if (data[i] > aMax) aMax = data[i];
+			if (data[i] < aMin) aMin = data[i];
+		}
+
+		const float range = static_cast<float>(aMax - aMin);
+		if (range == 0.0f) 
+			return std::make_pair(aMin, aMax);
+
+		float closestMinP = 9999.0f;
+		float closestMaxP = 9999.0f;
+
+		T min = 0;
+		T max = 0;
+		
+		// Get min/max values at the 10th and 90th percentile
+		for (size_t i = 0; i < size; i++) {
+			const float percentile = (static_cast<float>(data[i]) - static_cast<float>(aMin)) / range;
+			const float minP = abs(percentile - 0.1f);
+			const float maxP = abs(percentile - 0.9f);
+
+			if (minP < closestMinP) {
+				min = data[i];
+				closestMinP = minP;
+			}
+			if (maxP < closestMaxP) {
+				max = data[i];
+				closestMaxP = maxP;
+			}
+		}
+
+		return std::make_pair(min, max);
+	}
 };
 /*----------------------------------------------------------------*/
 

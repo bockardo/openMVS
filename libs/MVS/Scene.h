@@ -56,8 +56,7 @@ public:
 	ImageArr images; // images, each referencing a platform's camera pose
 	PointCloud pointcloud; // point-cloud (sparse or dense), each containing the point position and the views seeing it
 	Mesh mesh; // mesh, represented as vertices and triangles, constructed from the input point-cloud
-	OBB3f obb; // region-of-interest represented as oriented bounding box containing the entire scene (optional)
-	Matrix4x4 transform; // transformation used to convert from absolute to relative coordinate system (optional)
+	OBB3f obb; // optional region-of-interest; oriented bounding box containing the entire scene
 
 	unsigned nCalibratedImages; // number of valid images
 
@@ -76,7 +75,6 @@ public:
 	bool LoadInterface(const String& fileName);
 	bool SaveInterface(const String& fileName, int version=-1) const;
 
-	bool LoadROI(const String& fileName);
 	bool LoadDMAP(const String& fileName);
 	bool LoadViewNeighbors(const String& fileName);
 	bool SaveViewNeighbors(const String& fileName) const;
@@ -102,7 +100,7 @@ public:
 	bool ExportCamerasMLP(const String& fileName, const String& fileNameScene) const;
 	static bool ExportLinesPLY(const String& fileName, const CLISTDEF0IDX(Line3f,uint32_t)& lines, const Pixel8U* colors=NULL, bool bBinary=true);
 
-	// Sub-scene split and save
+	// sub-scene split and save
 	struct ImagesChunk {
 		std::unordered_set<IIndex> images;
 		AABB3f aabb;
@@ -115,14 +113,10 @@ public:
 	bool Center(const Point3* pCenter = NULL);
 	bool Scale(const REAL* pScale = NULL);
 	bool ScaleImages(unsigned nMaxResolution = 0, REAL scale = 0, const String& folderName = String());
-	Matrix4x4 ComputeNormalizationTransform(bool bScale = false) const;
 	void Transform(const Matrix3x3& rotation, const Point3& translation, REAL scale);
 	void Transform(const Matrix3x4& transform);
 	bool AlignTo(const Scene&);
 	REAL ComputeLeveledVolume(float planeThreshold=0, float sampleMesh=-100000, unsigned upAxis=2, bool verbose=true);
-	void AddNoiseCameraPoses(float epsPosition, float epsRotation);
-	Scene SubScene(const IIndexArr& idxImages) const;
-	Scene& CropToROI(const OBB3f&, unsigned minNumPoints = 3);
 
 	// Estimate and set region-of-interest
 	bool EstimateROI(int nEstimateROI=0, float scale=1.f);
@@ -158,7 +152,7 @@ public:
 	// Mesh texturing
 	bool TextureMesh(unsigned nResolutionLevel, unsigned nMinResolution, unsigned minCommonCameras=0, float fOutlierThreshold=0.f, float fRatioDataSmoothness=0.3f,
 		bool bGlobalSeamLeveling=true, bool bLocalSeamLeveling=true, unsigned nTextureSizeMultiple=0, unsigned nRectPackingHeuristic=3, Pixel8U colEmpty=Pixel8U(255,127,39),
-		float fSharpnessWeight=0.5f, int ignoreMaskLabel=-1, int maxTextureSize=0, const IIndexArr& views=IIndexArr());
+		float fSharpnessWeight=0.5f, int ignoreMaskLabel = -1, const IIndexArr& views=IIndexArr());
 
 	#ifdef _USE_BOOST
 	// implement BOOST serialization
@@ -169,7 +163,6 @@ public:
 		ar & pointcloud;
 		ar & mesh;
 		ar & obb;
-		ar & transform;
 	}
 	#endif
 };

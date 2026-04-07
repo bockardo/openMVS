@@ -69,17 +69,8 @@ namespace OPT {
 	boost::program_options::variables_map vm;
 } // namespace OPT
 
-class Application {
-public:
-	Application() {}
-	~Application() { Finalize(); }
-
-	bool Initialize(size_t argc, LPCTSTR* argv);
-	void Finalize();
-}; // Application
-
 // initialize and parse the command line parameters
-bool Application::Initialize(size_t argc, LPCTSTR* argv)
+bool Initialize(size_t argc, LPCTSTR* argv)
 {
 	// initialize log and console
 	OPEN_LOG();
@@ -162,14 +153,27 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 	if (OPT::strOutputFileName.empty())
 		OPT::strOutputFileName = Util::getFileName(OPT::strInputFileName) + "scene" MVS_EXT;
 
-	MVS::Initialize(APPNAME, OPT::nMaxThreads, OPT::nProcessPriority);
+	// initialize global options
+	Process::setCurrentProcessPriority((Process::Priority)OPT::nProcessPriority);
+	#ifdef _USE_OPENMP
+	if (OPT::nMaxThreads != 0)
+		omp_set_num_threads(OPT::nMaxThreads);
+	#endif
+
+	#ifdef _USE_BREAKPAD
+	// start memory dumper
+	MiniDumper::Create(APPNAME, WORKING_FOLDER);
+	#endif
 	return true;
 }
 
 // finalize application instance
-void Application::Finalize()
+void Finalize()
 {
-	MVS::Finalize();
+	#if TD_VERBOSE != TD_VERBOSE_OFF
+	// print memory statistics
+	Util::LogMemoryInfo();
+	#endif
 
 	CLOSE_LOGFILE();
 	CLOSE_LOGCONSOLE();
@@ -259,15 +263,17 @@ void RangeToDepthMap(const Image32F& rangeMap, const Camera& camera, DepthMap& d
 //  K20 K21 K22
 //
 //  DEPTH_MIN DEPTH_INTERVAL (DEPTH_NUM DEPTH_MAX)
-bool ParseSceneMVSNet(Scene& scene, const String& strPath)
+bool ParseSceneMVSNet(Scene& scene, const std::filesystem::path& path)
 {
 	#if defined(_SUPPORT_CPP17) && (!defined(__GNUC__) || (__GNUC__ > 7))
+	String strPath(path.string());
+	Util::ensureValidFolderPath(strPath);
 	IIndex prevPlatformID = NO_ID;
-	for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator((strPath + MVSNET_IMAGES_FOLDER).c_str())) {
+	for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(path / MVSNET_IMAGES_FOLDER)) {
 		if (entry.path().extension() != MVSNET_IMAGES_EXT)
 			continue;
 		// parse camera
-		const std::string strCamFileName(strPath + MVSNET_CAMERAS_FOLDER PATH_SEPARATOR_STR + entry.path().stem().string().c_str() + MVSNET_CAMERAS_NAME);
+		const std::string strCamFileName((path / MVSNET_CAMERAS_FOLDER / entry.path().stem()).string() + MVSNET_CAMERAS_NAME);
 		std::ifstream fcam(strCamFileName);
 		if (!fcam)
 			continue;
@@ -359,9 +365,9 @@ bool ParseSceneMVSNet(Scene& scene, const String& strPath)
 //     |--normalxxxx.exr
 //     ....
 //   |--transforms.json
-bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
+bool ParseSceneNerfstudio(Scene& scene, const std::filesystem::path& path)
 {
-	const nlohmann::json data = nlohmann::json::parse(std::ifstream(strPath + NERFSTUDIO_TRANSFORMS));
+	const nlohmann::json data = nlohmann::json::parse(std::ifstream((path / NERFSTUDIO_TRANSFORMS).string()));
 	if (data.empty())
 		return false;
 	// parse camera
@@ -394,13 +400,15 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 		return false;
 	}
 	// parse images
+	String workPath(path.parent_path().string());
+	Util::ensureFolderSlash(workPath);
 	const nlohmann::json& frames = data["frames"];
 	for (const nlohmann::json& frame: frames) {
 		// set image
 		// frames expected to be ordered in JSON
 		const IIndex imageID = scene.images.size(); 
-		const String strFileName(strPath + frame["file_path"].get<std::string>().c_str());
-		Image& imageData = scene.images.emplace_back();
+		const String strFileName((path / frame["file_path"].get<std::string>()).string());
+		Image& imageData = scene.images.AddEmpty();
 		imageData.platformID = platformID;
 		imageData.cameraID = 0; // only one camera per platform supported by this format
 		imageData.poseID = NO_ID;
@@ -423,9 +431,9 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 		};
 		// revert nerfstudio conversion:
 		// convert from COLMAP's camera coordinate system (OpenCV) to ours (OpenGL)
-		//   c2w[0:3, 1:3] *= -1
-		//   c2w = c2w[np.array([1, 0, 2, 3]), :]
-		//   c2w[2, :] *= -1
+        //   c2w[0:3, 1:3] *= -1
+        //   c2w = c2w[np.array([1, 0, 2, 3]), :]
+        //   c2w[2, :] *= -1
 		P.row(2) *= -1;
 		P.row(0).swap(P.row(1));
 		P.col(2) *= -1;
@@ -437,7 +445,7 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 		imageData.camera = platform.GetCamera(imageData.cameraID, imageData.poseID);
 		// try reading depth-map and normal-map
 		DepthMap depthMap; {
-			const String depthPath(strPath + String::FormatString("outputs/depth%04u.exr", imageID));
+			const String depthPath((path.parent_path() / String::FormatString("outputs/depth%04u.exr", imageID).c_str()).string());
 			const Image32F rangeMap = cv::imread(depthPath, cv::IMREAD_UNCHANGED);
 			if (rangeMap.empty()) {
 				VERBOSE("Unable to load depthmap %s.", depthPath.c_str());
@@ -446,7 +454,7 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 			RangeToDepthMap(rangeMap, imageData.camera, depthMap);
 		}
 		NormalMap normalMap; {
-			const String normalPath(strPath + String::FormatString("outputs/normal%04u.exr", imageID));
+			const String normalPath((path.parent_path() / String::FormatString("outputs/normal%04u.exr", imageID).c_str()).string());
 			normalMap = cv::imread(normalPath, cv::IMREAD_UNCHANGED);
 			if (normalMap.empty()) {
 				VERBOSE("Unable to load normalMap %s.", normalPath.c_str());
@@ -458,14 +466,14 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 		const IIndexArr IDs = {imageID};
 		double dMin, dMax;
 		cv::minMaxIdx(depthMap, &dMin, &dMax, NULL, NULL, depthMap > 0);
-		const String dmapPath(strPath + String::FormatString("depth%04u.dmap", imageID));
+		const String dmapPath(workPath + String::FormatString("depth%04u.dmap", imageID));
 		if (!ExportDepthDataRaw(dmapPath,
 			imageData.name, IDs, resolution,
 			camera.K, pose.R, pose.C,
 			(float)dMin, (float)dMax,
 			depthMap, normalMap, confMap, viewsMap))
 		{
-			VERBOSE("Unable to save dmap: %s", dmapPath.c_str());
+			VERBOSE("Unable to save dmap: %s", dmapPath);
 			continue;
 		}
 	}
@@ -482,13 +490,16 @@ bool ParseSceneNerfstudio(Scene& scene, const String& strPath)
 //   |--xxx.depth.exr
 //   |--xxx.json
 //   ....
-bool ParseSceneRTMV(Scene& scene, const String& strPath)
+bool ParseSceneRTMV(Scene& scene, const std::filesystem::path& path)
 {
-	const String strImagePath(strPath + "images/");
+	String strImagePath((path / "images").string());
+	Util::ensureFolderSlash(strImagePath);
 	Util::ensureFolder(strImagePath);
+	String workPath(path.parent_path().string());
+	Util::ensureFolderSlash(workPath);
 	std::vector<String> strImageNames;
 	#if defined(_SUPPORT_CPP17) && (!defined(__GNUC__) || (__GNUC__ > 7))
-	for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(strPath.c_str())) {
+	for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(path)) {
 		if (entry.path().extension() != RTMV_CAMERAS_EXT)
 			continue;
 		strImageNames.emplace_back(entry.path().stem().string());
@@ -509,7 +520,7 @@ bool ParseSceneRTMV(Scene& scene, const String& strPath)
 		const IIndex imageID((IIndex)i);
 		const String& strImageName(strImageNames[imageID]);
 		// parse camera
-		const String strFileName(strPath + strImageName);
+		const String strFileName((path / strImageName.c_str()).string());
 		const nlohmann::json dataCamera = nlohmann::json::parse(std::ifstream(strFileName+RTMV_CAMERAS_EXT));
 		if (dataCamera.empty())
 			continue;
@@ -626,14 +637,14 @@ bool ParseSceneRTMV(Scene& scene, const String& strPath)
 		const IIndexArr IDs = {imageID};
 		double dMin, dMax;
 		cv::minMaxIdx(depthMap, &dMin, &dMax, NULL, NULL, depthMap > 0);
-		const String dmapPath(strPath + String::FormatString("depth%04u.dmap", imageID));
+		const String dmapPath(workPath + String::FormatString("depth%04u.dmap", imageID));
 		if (!ExportDepthDataRaw(dmapPath,
 			imageData.name, IDs, resolution,
 			K, pose.R, pose.C,
 			(float)dMin, (float)dMax,
 			depthMap, normalMap, confMap, viewsMap))
 		{
-			VERBOSE("Unable to save dmap: %s", dmapPath.c_str());
+			VERBOSE("Unable to save dmap: %s", dmapPath);
 			continue;
 		}
 	}
@@ -664,9 +675,9 @@ bool ParseScene(Scene& scene)
 		}
 	}
 	switch (sceneType) {
-	case NERFSTUDIO: return ParseSceneNerfstudio(scene, strPath);
-	case RTMV: return ParseSceneRTMV(scene, strPath);
-	default: return ParseSceneMVSNet(scene, strPath);
+	case NERFSTUDIO: return ParseSceneNerfstudio(scene, path);
+	case RTMV: return ParseSceneRTMV(scene, path);
+	default: return ParseSceneMVSNet(scene, path);
 	}
 	#else
 	VERBOSE("error: C++17 is required to parse MVSNet format");
@@ -683,8 +694,7 @@ int main(int argc, LPCTSTR* argv)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);// | _CRTDBG_CHECK_ALWAYS_DF);
 	#endif
 
-	Application application;
-	if (!application.Initialize(argc, argv))
+	if (!Initialize(argc, argv))
 		return EXIT_FAILURE;
 
 	TD_TIMER_START();
@@ -701,6 +711,8 @@ int main(int argc, LPCTSTR* argv)
 	VERBOSE("Imported data: %u platforms, %u images, %u vertices (%s)",
 		scene.platforms.size(), scene.images.size(), scene.pointcloud.GetSize(),
 		TD_TIMER_GET_FMT().c_str());
+
+	Finalize();
 	return EXIT_SUCCESS;
 }
 /*----------------------------------------------------------------*/

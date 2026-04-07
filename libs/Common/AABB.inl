@@ -19,9 +19,9 @@ inline TAABB<TYPE,DIMS>::TAABB(bool)
 {
 }
 template <typename TYPE, int DIMS>
-inline TAABB<TYPE,DIMS>::TAABB(const POINT& pt)
+inline TAABB<TYPE,DIMS>::TAABB(const POINT& _pt)
 	:
-	ptMin(pt), ptMax(pt)
+	ptMin(_pt), ptMax(_pt)
 {
 }
 template <typename TYPE, int DIMS>
@@ -34,12 +34,6 @@ template <typename TYPE, int DIMS>
 inline TAABB<TYPE,DIMS>::TAABB(const POINT& center, const TYPE& radius)
 	:
 	ptMin(center-POINT::Constant(radius)), ptMax(center+POINT::Constant(radius))
-{
-}
-template <typename TYPE, int DIMS>
-inline TAABB<TYPE,DIMS>::TAABB(const ALIGNEDBOX& box)
-	:
-	ptMin(box.min()), ptMax(box.max())
 {
 }
 template <typename TYPE, int DIMS>
@@ -65,9 +59,9 @@ inline void TAABB<TYPE,DIMS>::Reset()
 	ptMax = POINT::Constant(std::numeric_limits<TYPE>::lowest());
 }
 template <typename TYPE, int DIMS>
-inline void TAABB<TYPE,DIMS>::Set(const POINT& pt)
+inline void TAABB<TYPE,DIMS>::Set(const POINT& _pt)
 {
-	ptMin = ptMax = pt;
+	ptMin = ptMax = _pt;
 }
 template <typename TYPE, int DIMS>
 inline void TAABB<TYPE,DIMS>::Set(const POINT& _ptMin, const POINT& _ptMax)
@@ -80,12 +74,6 @@ inline void TAABB<TYPE,DIMS>::Set(const POINT& center, const TYPE& radius)
 {
 	ptMin = center-POINT::Constant(radius);
 	ptMax = center+POINT::Constant(radius);
-}
-template <typename TYPE, int DIMS>
-inline void TAABB<TYPE,DIMS>::Set(const ALIGNEDBOX& box)
-{
-	ptMin = box.min();
-	ptMax = box.max();
 }
 template <typename TYPE, int DIMS>
 template <typename TPoint>
@@ -125,14 +113,6 @@ inline TAABB<TYPE,DIMS>& TAABB<TYPE,DIMS>::EnlargePercent(TYPE x)
 	ptMax += ptSizeDelta;
 	return *this;
 } // Enlarge
-/*----------------------------------------------------------------*/
-
-
-template <typename TYPE, int DIMS>
-inline typename TAABB<TYPE,DIMS>::ALIGNEDBOX TAABB<TYPE,DIMS>::GetAlignedBox() const
-{
-	return ALIGNEDBOX(ptMin, ptMax);
-} // GetAlignedBox
 /*----------------------------------------------------------------*/
 
 

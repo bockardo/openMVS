@@ -203,27 +203,27 @@ private:
 
 	struct Arc
 	{
-		Node*    head;
-		Arc*     rev;
+		Node*		head;
+		Arc*		rev;
 		#if 0
-		uint32_t isRevResidual :1;
-		uint32_t rCap :31;
+		int			isRevResidual :1;
+		int			rCap :31;
 		#else
-		EdgeCap  rCap;
-		uint8_t  isRevResidual;
+		EdgeCap			rCap;
+		unsigned char	isRevResidual;
 		#endif
 	};
 
 	struct Node
 	{
-		uint32_t lastAugTimestamp:31;
-		uint32_t isParentCurr:1;
-		Arc*     firstArc;
-		Arc*     parent;
-		Node*    firstSon;
-		Node*    nextPtr;
-		int      label; // label > 0: distance from s, label < 0: -distance from t
-		EdgeCap  excess; // excess > 0: capacity from s, excess < 0: -capacity to t
+		int			lastAugTimestamp:31;
+		int			isParentCurr:1;
+		Arc			*firstArc;
+		Arc			*parent;
+		Node		*firstSon;
+		Node		*nextPtr;
+		int			label;	// label > 0: distance from s, label < 0: -distance from t
+		EdgeCap		excess;	 // excess > 0: capacity from s, excess < 0: -capacity to t
 	};
 
 	class ActiveList

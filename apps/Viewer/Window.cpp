@@ -32,11 +32,6 @@
 #include "Common.h"
 #include "Window.h"
 
-#ifdef _MSC_VER
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3native.h>
-#endif
-
 using namespace VIEWER;
 
 
@@ -62,6 +57,9 @@ Window::~Window()
 void Window::Release()
 {
 	if (IsValid()) {
+		#ifdef _USE_NUKLEAR
+		nk_glfw3_shutdown();
+		#endif
 		glfwDestroyWindow(window);
 		window = NULL;
 	}
@@ -79,7 +77,6 @@ void Window::ReleaseClbk()
 	clbkCompileMesh.reset();
 	clbkCompileBounds.reset();
 	clbkTogleSceneBox.reset();
-	clbkCropToBounds.reset();
 }
 
 bool Window::Init(const cv::Size& _size, LPCTSTR name)
@@ -100,15 +97,6 @@ bool Window::Init(const cv::Size& _size, LPCTSTR name)
 	glfwSetScrollCallback(window, Window::Scroll);
 	glfwSetDropCallback(window, Window::Drop);
 	g_mapWindows[window] = this;
-
-	#ifdef _MSC_VER
-	// set application icon from resources
-	const HICON hIcon = ::LoadIcon(::GetModuleHandle(NULL), MAKEINTRESOURCE(101));
-	const HWND hwnd = glfwGetWin32Window(window);
-	::SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
-	::SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
-	::DestroyIcon(hIcon);
-	#endif
 
 	Reset();
 	return true;
@@ -152,8 +140,6 @@ void Window::Reset(SPARSE _sparseType, unsigned _minViews)
 	bRenderBounds = false;
 	selectionType = SEL_NA;
 	selectionIdx = NO_IDX;
-	colorSource = COL_IMAGE;
-	colorThreshold = 0.5f;
 	if (clbkCompilePointCloud != NULL)
 		clbkCompilePointCloud();
 	if (clbkCompileMesh != NULL)
@@ -201,6 +187,14 @@ void Window::UpdateMousePosition(double xpos, double ypos)
 	const int h(camera.size.height);
 	pos.x() = (2.0 * pos.x() - w) / w;
 	pos.y() = (h - 2.0 * pos.y()) / h;
+}
+
+
+void Window::GetFrame(Image8U3& image) const
+{
+	image.create(GetSize());
+	glReadPixels(0, 0, image.width(), image.height(), GL_BGR_EXT, GL_UNSIGNED_BYTE, image.ptr());
+	cv::flip(image, image, 0);
 }
 
 
@@ -274,10 +268,7 @@ void Window::Key(int k, int /*scancode*/, int action, int mod)
 		break;
 	case GLFW_KEY_B:
 		if (action == GLFW_RELEASE) {
-			if (mod & GLFW_MOD_CONTROL) {
-				if (clbkCropToBounds != NULL)
-					clbkCropToBounds();
-			} else if (mod & GLFW_MOD_SHIFT) {
+			if (mod & GLFW_MOD_SHIFT) {
 				if (clbkTogleSceneBox != NULL)
 					clbkTogleSceneBox();
 			} else {
@@ -350,73 +341,25 @@ void Window::Key(int k, int /*scancode*/, int action, int mod)
 		break;
 	case GLFW_KEY_KP_SUBTRACT:
 		if (action == GLFW_RELEASE) {
-			if (mod & GLFW_MOD_CONTROL) {
+			if (mod & GLFW_MOD_CONTROL)
 				camera.SetFOV(camera.fov-5.f);
-			} else if (mod & GLFW_MOD_SHIFT) {
+			else if (mod & GLFW_MOD_SHIFT)
 				camera.scaleF *= 0.9f;
-			} else if (mod & GLFW_MOD_ALT) {
-				if (colorSource != COL_IMAGE && colorThreshold > 0.f) {
-					colorThreshold = MAXF(colorThreshold-0.1f, 0.f);
-					clbkCompilePointCloud();
-				}
-			} else {
+			else
 				cameraBlend = MAXF(cameraBlend-0.1f, 0.f);
-			}
 		}
 		break;
 	case GLFW_KEY_KP_ADD:
 		if (action == GLFW_RELEASE) {
-			if (mod & GLFW_MOD_CONTROL) {
+			if (mod & GLFW_MOD_CONTROL)
 				camera.SetFOV(camera.fov+5.f);
-			} else if (mod & GLFW_MOD_SHIFT) {
+			else if (mod & GLFW_MOD_SHIFT)
 				camera.scaleF *= 1.1111f;
-			} else if (mod & GLFW_MOD_ALT) {
-				if (colorSource != COL_IMAGE) {
-					colorThreshold += 0.1f;
-					clbkCompilePointCloud();
-				}
-			} else {
+			else
 				cameraBlend = MINF(cameraBlend+0.1f, 1.f);
-			}
-		}
-		break;
-	case GLFW_KEY_F1:
-		if (action == GLFW_RELEASE) {
-			colorSource = COL_IMAGE;
-			if (clbkCompilePointCloud != NULL)
-				clbkCompilePointCloud();
-		}
-		break;
-	case GLFW_KEY_F2:
-		if (action == GLFW_RELEASE) {
-			colorSource = COL_CONFIDENCE;
-			if (clbkCompilePointCloud != NULL)
-				clbkCompilePointCloud();
-		}
-		break;
-	case GLFW_KEY_F3:
-		if (action == GLFW_RELEASE) {
-			colorSource = COL_DEPTH;
-			if (clbkCompilePointCloud != NULL)
-				clbkCompilePointCloud();
-		}
-		break;
-	case GLFW_KEY_F4:
-		if (action == GLFW_RELEASE) {
-			colorSource = COL_COMPOSITE;
-			if (clbkCompilePointCloud != NULL)
-				clbkCompilePointCloud();
-		}
-		break;
-	case GLFW_KEY_F5:
-		if (action == GLFW_RELEASE) {
-			colorSource = COL_NORMAL;
-			if (clbkCompilePointCloud != NULL)
-				clbkCompilePointCloud();
 		}
 		break;
 	}
-	
 }
 void Window::Key(GLFWwindow* window, int k, int scancode, int action, int mod)
 {
@@ -511,9 +454,9 @@ void Window::Drop(int count, const char** paths)
 		String fileName(paths[0]);
 		Util::ensureUnifySlash(fileName);
 		if (count > 1) {
-			String geometryFileName(paths[1]);
-			Util::ensureUnifySlash(geometryFileName);
-			clbkOpenScene(fileName, geometryFileName);
+			String meshFileName(paths[1]);
+			Util::ensureUnifySlash(meshFileName);
+			clbkOpenScene(fileName, meshFileName);
 		} else {
 			clbkOpenScene(fileName, NULL);
 		}

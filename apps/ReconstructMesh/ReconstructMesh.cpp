@@ -82,17 +82,8 @@ String strConfigFileName;
 boost::program_options::variables_map vm;
 } // namespace OPT
 
-class Application {
-public:
-	Application() {}
-	~Application() { Finalize(); }
-
-	bool Initialize(size_t argc, LPCTSTR* argv);
-	void Finalize();
-}; // Application
-
 // initialize and parse the command line parameters
-bool Application::Initialize(size_t argc, LPCTSTR* argv)
+bool Initialize(size_t argc, LPCTSTR* argv)
 {
 	// initialize log and console
 	OPEN_LOG();
@@ -118,7 +109,7 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 			), "verbosity level")
 		#endif
 		#ifdef _USE_CUDA
-		("cuda-device", boost::program_options::value(&SEACAVE::CUDA::desiredDeviceID)->default_value(-1), "CUDA device number to be used to reconstruct the mesh (-2 - CPU processing, -1 - best GPU, >=0 - device index)")
+		("cuda-device", boost::program_options::value(&CUDA::desiredDeviceID)->default_value(-1), "CUDA device number to be used to reconstruct the mesh (-2 - CPU processing, -1 - best GPU, >=0 - device index)")
 		#endif
 		;
 
@@ -128,7 +119,7 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 		("input-file,i", boost::program_options::value<std::string>(&OPT::strInputFileName), "input filename containing camera poses and image list")
 		("pointcloud-file,p", boost::program_options::value<std::string>(&OPT::strPointCloudFileName), "dense point-cloud with views file name to reconstruct (overwrite existing point-cloud)")
 		("output-file,o", boost::program_options::value<std::string>(&OPT::strOutputFileName), "output filename for storing the mesh")
-		("min-point-distance,d", boost::program_options::value(&OPT::fDistInsert)->default_value(1.5f), "minimum distance in pixels between the projection of two 3D points to consider them different while triangulating (0 - disabled)")
+		("min-point-distance,d", boost::program_options::value(&OPT::fDistInsert)->default_value(2.5f), "minimum distance in pixels between the projection of two 3D points to consider them different while triangulating (0 - disabled)")
 		("integrate-only-roi", boost::program_options::value(&OPT::bUseOnlyROI)->default_value(false), "use only the points inside the ROI")
 		("constant-weight", boost::program_options::value(&OPT::bUseConstantWeight)->default_value(true), "considers all view weights 1 instead of the available weight")
 		("free-space-support,f", boost::program_options::value(&OPT::bUseFreeSpaceSupport)->default_value(false), "exploits the free-space support in order to reconstruct weakly-represented surfaces")
@@ -186,7 +177,7 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 	}
 
 	// initialize the log file
-	OPEN_LOGFILE(MAKE_PATH(APPNAME _T("-")+Util::getUniqueName(0)+_T(".log")).c_str());
+	// OPEN_LOGFILE(MAKE_PATH(APPNAME _T("-")+Util::getUniqueName(0)+_T(".log")).c_str());
 
 	// print application details: version and command line
 	Util::LogBuild();
@@ -209,19 +200,34 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 	Util::ensureValidPath(OPT::strImportROIFileName);
 	Util::ensureValidPath(OPT::strImagePointsFileName);
 	Util::ensureValidPath(OPT::strMeshFileName);
-	if (OPT::strPointCloudFileName.empty() && (ARCHIVE_TYPE)OPT::nArchiveType == ARCHIVE_MVS)
+	if (OPT::strPointCloudFileName.empty() && OPT::nArchiveType == ARCHIVE_MVS)
 		OPT::strPointCloudFileName = Util::getFileFullName(OPT::strInputFileName) + _T(".ply");
 	if (OPT::strOutputFileName.empty())
 		OPT::strOutputFileName = Util::getFileFullName(OPT::strInputFileName) + _T("_mesh.mvs");
 
-	MVS::Initialize(APPNAME, OPT::nMaxThreads, OPT::nProcessPriority);
+	// initialize global options
+	Process::setCurrentProcessPriority((Process::Priority)OPT::nProcessPriority);
+	#ifdef _USE_OPENMP
+	if (OPT::nMaxThreads != 0)
+		omp_set_num_threads(OPT::nMaxThreads);
+	#endif
+
+	#ifdef _USE_BREAKPAD
+	// start memory dumper
+	MiniDumper::Create(APPNAME, WORKING_FOLDER);
+	#endif
+
+	Util::Init();
 	return true;
 }
 
 // finalize application instance
-void Application::Finalize()
+void Finalize()
 {
-	MVS::Finalize();
+	#if TD_VERBOSE != TD_VERBOSE_OFF
+	// print memory statistics
+	Util::LogMemoryInfo();
+	#endif
 
 	CLOSE_LOGFILE();
 	CLOSE_LOGCONSOLE();
@@ -315,7 +321,7 @@ bool Export3DProjections(Scene& scene, const String& inputFileName) {
 	const Mesh::Octree octree(scene.mesh.vertices, [](Mesh::Octree::IDX_TYPE size, Mesh::Octree::Type /*radius*/) {
 		return size > 256;
 	});
-	scene.mesh.ListIncidentFaces();
+	scene.mesh.ListIncidenteFaces();
 
 	// save 3D coord in the output file
 	const Image& imgToExport = scene.images[imgID];
@@ -340,8 +346,7 @@ int main(int argc, LPCTSTR* argv)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);// | _CRTDBG_CHECK_ALWAYS_DF);
 	#endif
 
-	Application application;
-	if (!application.Initialize(argc, argv))
+	if (!Initialize(argc, argv))
 		return EXIT_FAILURE;
 
 	Scene scene(OPT::nMaxThreads);
@@ -350,9 +355,7 @@ int main(int argc, LPCTSTR* argv)
 		OPT::fSplitMaxArea > 0 || OPT::fDecimateMesh < 1 || OPT::nTargetFaceNum > 0 || !OPT::strImportROIFileName.empty()));
 	if (sceneType == Scene::SCENE_NA)
 		return EXIT_FAILURE;
-	if (!OPT::strPointCloudFileName.empty() && (File::isFile(MAKE_PATH_SAFE(OPT::strPointCloudFileName)) ?
-		!scene.pointcloud.Load(MAKE_PATH_SAFE(OPT::strPointCloudFileName)) :
-		!scene.pointcloud.IsValid())) {
+	if (!OPT::strPointCloudFileName.empty() && !scene.pointcloud.Load(MAKE_PATH_SAFE(OPT::strPointCloudFileName))) {
 		VERBOSE("error: cannot load point-cloud file");
 		return EXIT_FAILURE;
 	}
@@ -366,14 +369,15 @@ int main(int argc, LPCTSTR* argv)
 		Mesh::FacesChunkArr chunks;
 		if (scene.mesh.Split(chunks, OPT::fSplitMaxArea))
 			scene.mesh.Save(chunks, baseFileName);
+		Finalize();
 		return EXIT_SUCCESS;
 	}
 
 	if (!OPT::strImportROIFileName.empty()) {
-		if (!scene.LoadROI(MAKE_PATH_SAFE(OPT::strImportROIFileName))) {
-			VERBOSE("error: cannot load ROI file");
+		std::ifstream fs(MAKE_PATH_SAFE(OPT::strImportROIFileName));
+		if (!fs)
 			return EXIT_FAILURE;
-		}
+		fs >> scene.obb;
 		if (OPT::bCrop2ROI && !scene.mesh.IsEmpty() && !scene.IsValid()) {
 			TD_TIMER_START();
 			const size_t numVertices = scene.mesh.vertices.size();
@@ -382,6 +386,7 @@ int main(int argc, LPCTSTR* argv)
 			VERBOSE("Mesh trimmed to ROI: %u vertices and %u faces removed (%s)",
 				numVertices-scene.mesh.vertices.size(), numFaces-scene.mesh.faces.size(), TD_TIMER_GET_FMT().c_str());
 			scene.mesh.Save(baseFileName+OPT::strExportType);
+			Finalize();
 			return EXIT_SUCCESS;
 		}
 	}
@@ -474,8 +479,8 @@ int main(int argc, LPCTSTR* argv)
 				numVertices-scene.mesh.vertices.size(), numFaces-scene.mesh.faces.size(), TD_TIMER_GET_FMT().c_str());
 		}
 		const float fDecimate(OPT::nTargetFaceNum ? static_cast<float>(OPT::nTargetFaceNum) / scene.mesh.faces.size() : OPT::fDecimateMesh);
-		scene.mesh.Clean(1.f, OPT::fRemoveSpurious, OPT::bRemoveSpikes, OPT::nCloseHoles, OPT::nSmoothMesh, OPT::fEdgeLength, false);
-		scene.mesh.Clean(fDecimate, 0.f, OPT::bRemoveSpikes, OPT::nCloseHoles, 0u, 0.f, false); // extra cleaning trying to close more holes
+		scene.mesh.Clean(fDecimate, OPT::fRemoveSpurious, OPT::bRemoveSpikes, OPT::nCloseHoles, OPT::nSmoothMesh, OPT::fEdgeLength, false);
+		scene.mesh.Clean(1.f, 0.f, OPT::bRemoveSpikes, OPT::nCloseHoles, 0u, 0.f, false); // extra cleaning trying to close more holes
 		scene.mesh.Clean(1.f, 0.f, false, 0u, 0u, 0.f, true); // extra cleaning to remove non-manifold problems created by closing holes
 		scene.obb = initialOBB;
 
@@ -485,7 +490,7 @@ int main(int argc, LPCTSTR* argv)
 		if (VERBOSITY_LEVEL > 2)
 			scene.ExportCamerasMLP(baseFileName+_T(".mlp"), baseFileName+OPT::strExportType);
 		#endif
-		if ((ARCHIVE_TYPE)OPT::nArchiveType != ARCHIVE_MVS || sceneType != Scene::SCENE_INTERFACE)
+		if (OPT::nArchiveType != ARCHIVE_MVS || sceneType != Scene::SCENE_INTERFACE)
 			scene.Save(baseFileName+_T(".mvs"), (ARCHIVE_TYPE)OPT::nArchiveType);
 	}
 
@@ -493,6 +498,8 @@ int main(int argc, LPCTSTR* argv)
 		Export3DProjections(scene, MAKE_PATH_SAFE(OPT::strImagePointsFileName));
 		return EXIT_SUCCESS;
 	}
+
+	Finalize();
 	return EXIT_SUCCESS;
 }
 /*----------------------------------------------------------------*/

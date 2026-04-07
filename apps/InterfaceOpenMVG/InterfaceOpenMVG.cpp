@@ -339,17 +339,8 @@ String strConfigFileName;
 boost::program_options::variables_map vm;
 } // namespace OPT
 
-class Application {
-public:
-	Application() {}
-	~Application() { Finalize(); }
-
-	bool Initialize(size_t argc, LPCTSTR* argv);
-	void Finalize();
-}; // Application
-
 // initialize and parse the command line parameters
-bool Application::Initialize(size_t argc, LPCTSTR* argv)
+bool Initialize(size_t argc, LPCTSTR* argv)
 {
 	// initialize log and console
 	OPEN_LOG();
@@ -455,14 +446,27 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 			OPT::strOutputFileName = Util::getFileFullName(OPT::strInputFileName) + MVS_EXT;
 	}
 
-	MVS::Initialize(APPNAME, OPT::nMaxThreads, OPT::nProcessPriority);
+	// initialize global options
+	Process::setCurrentProcessPriority((Process::Priority)OPT::nProcessPriority);
+	#ifdef _USE_OPENMP
+	if (OPT::nMaxThreads != 0)
+		omp_set_num_threads(OPT::nMaxThreads);
+	#endif
+
+	#ifdef _USE_BREAKPAD
+	// start memory dumper
+	MiniDumper::Create(APPNAME, WORKING_FOLDER);
+	#endif
 	return true;
 }
 
 // finalize application instance
-void Application::Finalize()
+void Finalize()
 {
-	MVS::Finalize();
+	#if TD_VERBOSE != TD_VERBOSE_OFF
+	// print memory statistics
+	Util::LogMemoryInfo();
+	#endif
 
 	CLOSE_LOGFILE();
 	CLOSE_LOGCONSOLE();
@@ -478,8 +482,7 @@ int main(int argc, LPCTSTR* argv)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);// | _CRTDBG_CHECK_ALWAYS_DF);
 	#endif
 
-	Application application;
-	if (!application.Initialize(argc, argv))
+	if (!Initialize(argc, argv))
 		return EXIT_FAILURE;
 
 	TD_TIMER_START();
@@ -750,6 +753,7 @@ int main(int argc, LPCTSTR* argv)
 				TD_TIMER_GET_FMT().c_str());
 	}
 
+	Finalize();
 	return EXIT_SUCCESS;
 }
 /*----------------------------------------------------------------*/

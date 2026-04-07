@@ -72,17 +72,8 @@ String strConfigFileName;
 boost::program_options::variables_map vm;
 } // namespace OPT
 
-class Application {
-public:
-	Application() {}
-	~Application() { Finalize(); }
-
-	bool Initialize(size_t argc, LPCTSTR* argv);
-	void Finalize();
-}; // Application
-
 // initialize and parse the command line parameters
-bool Application::Initialize(size_t argc, LPCTSTR* argv)
+bool Initialize(size_t argc, LPCTSTR* argv)
 {
 	// initialize log and console
 	OPEN_LOG();
@@ -108,7 +99,7 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 			), "verbosity level")
 		#endif
 		#ifdef _USE_CUDA
-		("cuda-device", boost::program_options::value(&SEACAVE::CUDA::desiredDeviceID)->default_value(-2), "CUDA device number to be used for mesh refinement (-2 - CPU processing, -1 - best GPU, >=0 - device index)")
+		("cuda-device", boost::program_options::value(&CUDA::desiredDeviceID)->default_value(-2), "CUDA device number to be used for mesh refinement (-2 - CPU processing, -1 - best GPU, >=0 - device index)")
 		#endif
 		;
 
@@ -182,19 +173,34 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 	// initialize optional options
 	Util::ensureValidPath(OPT::strMeshFileName);
 	Util::ensureValidPath(OPT::strOutputFileName);
-	if (OPT::strMeshFileName.empty() && (ARCHIVE_TYPE)OPT::nArchiveType == ARCHIVE_MVS)
+	if (OPT::strMeshFileName.empty() && OPT::nArchiveType == ARCHIVE_MVS)
 		OPT::strMeshFileName = Util::getFileFullName(OPT::strInputFileName) + _T(".ply");
 	if (OPT::strOutputFileName.empty())
 		OPT::strOutputFileName = Util::getFileFullName(OPT::strInputFileName) + _T("_refine.mvs");
 
-	MVS::Initialize(APPNAME, OPT::nMaxThreads, OPT::nProcessPriority);
+	// initialize global options
+	Process::setCurrentProcessPriority((Process::Priority)OPT::nProcessPriority);
+	#ifdef _USE_OPENMP
+	if (OPT::nMaxThreads != 0)
+		omp_set_num_threads(OPT::nMaxThreads);
+	#endif
+
+	#ifdef _USE_BREAKPAD
+	// start memory dumper
+	MiniDumper::Create(APPNAME, WORKING_FOLDER);
+	#endif
+
+	Util::Init();
 	return true;
 }
 
 // finalize application instance
-void Application::Finalize()
+void Finalize()
 {
-	MVS::Finalize();
+	#if TD_VERBOSE != TD_VERBOSE_OFF
+	// print memory statistics
+	Util::LogMemoryInfo();
+	#endif
 
 	CLOSE_LOGFILE();
 	CLOSE_LOGCONSOLE();
@@ -210,8 +216,7 @@ int main(int argc, LPCTSTR* argv)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);// | _CRTDBG_CHECK_ALWAYS_DF);
 	#endif
 
-	Application application;
-	if (!application.Initialize(argc, argv))
+	if (!Initialize(argc, argv))
 		return EXIT_FAILURE;
 
 	Scene scene(OPT::nMaxThreads);
@@ -229,7 +234,7 @@ int main(int argc, LPCTSTR* argv)
 	}
 	TD_TIMER_START();
 	#ifdef _USE_CUDA
-	if (SEACAVE::CUDA::desiredDeviceID < -1 ||
+	if (CUDA::desiredDeviceID < -1 ||
 		!scene.RefineMeshCUDA(OPT::nResolutionLevel, OPT::nMinResolution, OPT::nMaxViews,
 							  OPT::fDecimateMesh, OPT::nCloseHoles, OPT::nEnsureEdgeSize,
 							  OPT::nMaxFaceArea,
@@ -259,8 +264,10 @@ int main(int argc, LPCTSTR* argv)
 	if (VERBOSITY_LEVEL > 2)
 		scene.ExportCamerasMLP(baseFileName+_T(".mlp"), baseFileName+OPT::strExportType);
 	#endif
-	if ((ARCHIVE_TYPE)OPT::nArchiveType != ARCHIVE_MVS || sceneType != Scene::SCENE_INTERFACE)
+	if (OPT::nArchiveType != ARCHIVE_MVS || sceneType != Scene::SCENE_INTERFACE)
 		scene.Save(baseFileName+_T(".mvs"), (ARCHIVE_TYPE)OPT::nArchiveType);
+
+	Finalize();
 	return EXIT_SUCCESS;
 }
 /*----------------------------------------------------------------*/

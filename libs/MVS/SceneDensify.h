@@ -45,9 +45,7 @@ namespace MVS {
 // Forward declarations
 class MVS_API Scene;
 #ifdef _USE_CUDA
-namespace CUDA {
-class PatchMatch;
-} // namespace CUDA
+class PatchMatchCUDA;
 #endif // _USE_CUDA
 
 // structure used to compute all depth-maps
@@ -57,6 +55,7 @@ public:
 	DepthMapsData(Scene& _scene);
 	~DepthMapsData();
 
+	bool SelectViews(IIndexArr& images, IIndexArr& imagesMap, IIndexArr& neighborsMap);
 	bool SelectViews(DepthData& depthData);
 	bool InitViews(DepthData& depthData, IIndex idxNeighbor, IIndex numNeighbors, bool loadImages, int loadDepthMaps);
 	bool InitDepthMap(DepthData& depthData);
@@ -65,13 +64,9 @@ public:
 	bool RemoveSmallSegments(DepthData& depthData);
 	bool GapInterpolation(DepthData& depthData);
 
-	void EstimateNormalMaps();
-
-	bool AdjustConfidenceFast(DepthData& depthData, const IIndexArr& idxNeighbors);
-	bool AdjustConfidence(DepthData& depthDataRef, const IIndexArr& idxNeighbors);
+	bool FilterDepthMap(DepthData& depthData, const IIndexArr& idxNeighbors, bool bAdjust=true);
 	void MergeDepthMaps(PointCloud& pointcloud, bool bEstimateColor, bool bEstimateNormal);
 	void FuseDepthMaps(PointCloud& pointcloud, bool bEstimateColor, bool bEstimateNormal);
-	void DenseFuseDepthMaps(PointCloud& pointcloud, bool bEstimateColor, bool bEstimateNormal);
 
 	static DepthData ScaleDepthData(const DepthData& inputDeptData, float scale);
 
@@ -93,7 +88,7 @@ public:
 
 	#ifdef _USE_CUDA
 	// used internally to estimate the depth-maps using CUDA
-	CAutoPtr<MVS::CUDA::PatchMatch> pmCUDA;
+	CAutoPtr<PatchMatchCUDA> pmCUDA;
 	#endif // _USE_CUDA
 };
 /*----------------------------------------------------------------*/

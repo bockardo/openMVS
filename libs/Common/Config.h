@@ -92,11 +92,11 @@
 /*----------------------------------------------------------------*/
 #ifdef _USRDLL
   #ifdef Common_EXPORTS
-	#define GENERAL_API EXPORT_API
-	#define GENERAL_TPL
+    #define GENERAL_API EXPORT_API
+    #define GENERAL_TPL
   #else
-	#define GENERAL_API IMPORT_API
-	#define GENERAL_TPL extern
+    #define GENERAL_API IMPORT_API
+    #define GENERAL_TPL extern
   #endif
 #else
   #define GENERAL_API
@@ -126,7 +126,7 @@
 #define GENERAL_TPL
 
 // Define platform type
-#if defined(__x86_64__) || defined(__ppc64__) || defined(__aarch64__) || defined(__arm64__) || defined(__mips64)
+#if __x86_64__ || __ppc64__
 #define _ENVIRONMENT64
 #else
 #define _ENVIRONMENT32
@@ -147,9 +147,6 @@
 #if __cplusplus >= 202002L || __clang_major__ >= 10
 #define _SUPPORT_CPP20
 #endif
-#if __cplusplus >= 202302L || __clang_major__ >= 16
-#define _SUPPORT_CPP23
-#endif
 
 
 #if defined(__powerpc__)
@@ -166,7 +163,8 @@
 #endif
 
 
-// optimization flags
+
+//optimization flags
 #if defined(_MSC_VER)
 #	define ALIGN(n) __declspec(align(n))
 #	define NOINITVTABLE __declspec(novtable) //disable generating code to initialize the vfptr in the constructor(s) and destructor of the class
@@ -208,6 +206,9 @@
 #	define FORCEINLINE inline
 #endif
 
+#ifndef _SUPPORT_CPP11
+#	define constexpr inline
+#endif
 #ifdef _SUPPORT_CPP17
 #	undef MAYBEUNUSED
 #	define MAYBEUNUSED [[maybe_unused]]
@@ -219,71 +220,41 @@
 #define SAFE_RELEASE(p)		{ if (p!=NULL) { (p)->Release(); (p)=NULL; } }
 
 
-#ifdef _MSC_VER
-#	define DEBUG_BREAK __debugbreak
-#else
-#if defined(__has_builtin) && __has_builtin(__builtin_debugtrap)
-#	define DEBUG_BREAK __builtin_debugtrap
-#else
-# if defined(__i386__) || defined(__x86_64__)
-__inline__ static void trap_instruction() { __asm__ volatile("int $3"); }
-#	define DEBUG_BREAK trap_instruction
-# elif defined(__arm__)
-__attribute__((always_inline))
-__inline__ static void trap_instruction() { __asm__ volatile("bkpt #0"); }
-#	define DEBUG_BREAK trap_instruction
-# elif defined(__aarch64__)
-__attribute__((always_inline))
-__inline__ static void trap_instruction() { __asm__ volatile("brk #0"); }
-#	define DEBUG_BREAK trap_instruction
-# else
-#	define DEBUG_BREAK __builtin_trap
-# endif
-#endif
-#endif
-
-#define PRINT_ASSERT_MSG(exp, ...)
-
 #ifdef _DEBUG
 
 #ifdef _MSC_VER
 #define _DEBUGINFO
-#define _CRTDBG_MAP_ALLOC //enable this to show also the filename (DEBUG_NEW should also be defined in each file)
+#define _CRTDBG_MAP_ALLOC	//enable this to show also the filename (DEBUG_NEW should also be defined in each file)
 #include <cstdlib>
 #include <crtdbg.h>
 #ifdef _INC_CRTDBG
-#define SIMPLE_ASSERT(exp) {if (!(exp) && 1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, NULL, #exp)) _CrtDbgBreak();}
-#define ASSERT(exp, ...) {static bool bIgnore(false); if (!bIgnore && !(exp)) {PRINT_ASSERT_MSG(exp, ##__VA_ARGS__); if (!(bIgnore = !(1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, NULL, #exp)))) _CrtDbgBreak();}}
+#define ASSERT(exp)	{if (!(exp) && 1 == _CrtDbgReport(_CRT_ASSERT, __FILE__, __LINE__, NULL, #exp)) _CrtDbgBreak();}
 #else
-#define SIMPLE_ASSERT(exp) {if (!(exp)) DEBUG_BREAK();}
-#define ASSERT(exp, ...) {if (!(exp)) {PRINT_ASSERT_MSG(exp, ##__VA_ARGS__); DEBUG_BREAK();}}
+#define ASSERT(exp)	{if (!(exp)) __debugbreak();}
 #endif // _INC_CRTDBG
-#define TRACE(...) {TCHAR buffer[2048]; _sntprintf(buffer, 2048, __VA_ARGS__); OutputDebugString(buffer);}
+#define TRACE(...) {TCHAR buffer[2048];	_sntprintf(buffer, 2048, __VA_ARGS__); OutputDebugString(buffer);}
 #else // _MSC_VER
 #include <assert.h>
-#define SIMPLE_ASSERT(exp) {if (!(exp)) DEBUG_BREAK();}
-#define ASSERT(exp, ...) {if (!(exp)) {PRINT_ASSERT_MSG(exp, ##__VA_ARGS__); DEBUG_BREAK();}}
+#define ASSERT(exp)	assert(exp)
 #define TRACE(...)
 #endif // _MSC_VER
 
 #else
 
 #ifdef _RELEASE
-#define SIMPLE_ASSERT(exp)
-#define ASSERT(exp, ...)
+#define ASSERT(exp)
 #else
 #ifdef _MSC_VER
-#define SIMPLE_ASSERT(exp) {if (!(exp)) __debugbreak();}
-#define ASSERT(exp, ...) {if (!(exp)) {PRINT_ASSERT_MSG(exp, ##__VA_ARGS__); __debugbreak();}}
+#define ASSERT(exp) {if (!(exp)) __debugbreak();}
 #else // _MSC_VER
-#define SIMPLE_ASSERT(exp) {if (!(exp)) __builtin_trap();}
-#define ASSERT(exp, ...) {if (!(exp)) {PRINT_ASSERT_MSG(exp, ##__VA_ARGS__); __builtin_trap();}}
+#define ASSERT(exp) {if (!(exp)) __builtin_trap();}
 #endif // _MSC_VER
 #endif
 #define TRACE(...)
 
 #endif // _DEBUG
 
+#define ASSERTM(exp, msg) ASSERT(exp)
 
 namespace SEACAVE_ASSERT
 {

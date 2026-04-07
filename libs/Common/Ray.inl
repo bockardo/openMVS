@@ -137,35 +137,31 @@ inline TRay<TYPE,DIMS>& TRay<TYPE,DIMS>::operator*=(const MATRIX& m)
 // test for intersection with triangle
 template <typename TYPE, int DIMS>
 template <bool bCull>
-bool TRay<TYPE,DIMS>::Intersects(const TRIANGLE& tri, TYPE *pt) const
+bool TRay<TYPE,DIMS>::Intersects(const TRIANGLE& tri, TYPE *t) const
 {
 	const VECTOR edge1(tri.b - tri.a);
 	const VECTOR edge2(tri.c - tri.a);
+
+	// if close to 0 ray is parallel
 	const VECTOR pvec(m_vDir.cross(edge2));
 	const TYPE det(edge1.dot(pvec));
-	// check if ray and triangle plane are parallel
-	if ((bCull ? det : ABS(det)) < ZEROTOLERANCE<TYPE>() * TYPE(0.01))
+	if ((bCull && det < ZEROTOLERANCE<TYPE>()) || (!bCull && ISZERO(det)))
 		return false;
-	const TYPE invDet(TYPE(1) / det);
+
+	// distance to plane, < 0 means beyond plane
 	const VECTOR tvec(m_pOrig - tri.a);
-	const TYPE u(tvec.dot(pvec) * invDet);
-	// check if intersection is outside of the line segment defined by points a and c
-	if (u < -ZEROTOLERANCE<TYPE>() * TYPE(10))
+	const TYPE u(tvec.dot(pvec));
+	if ((bCull && !ISINSIDE(u, -ZEROTOLERANCE<TYPE>(), det+ZEROTOLERANCE<TYPE>())) || (!bCull && (det > TYPE(0) ? (u < -ZEROTOLERANCE<TYPE>() || u > det+ZEROTOLERANCE<TYPE>()) : (u > ZEROTOLERANCE<TYPE>() || u < det-ZEROTOLERANCE<TYPE>()))))
 		return false;
+
 	const VECTOR qvec(tvec.cross(edge1));
-	const TYPE v(m_vDir.dot(qvec) * invDet);
-	// check if intersection is outside of the line segment defined by points a and b
-	if (v < -ZEROTOLERANCE<TYPE>() * TYPE(10))
+	const TYPE v(m_vDir.dot(qvec));
+	if ((bCull && (v < -ZEROTOLERANCE<TYPE>() || u+v > det+ZEROTOLERANCE<TYPE>())) || (!bCull && (det > TYPE(0) ? (v < -ZEROTOLERANCE<TYPE>() || u+v > det+ZEROTOLERANCE<TYPE>()) : (v > ZEROTOLERANCE<TYPE>() || u+v < det-ZEROTOLERANCE<TYPE>()))))
 		return false;
-	// check if intersection is outside of the line segment defined by points b and c
-	if (u + v > TYPE(1) + ZEROTOLERANCE<TYPE>() * TYPE(10))
-		return false;
-	const TYPE t(edge2.dot(qvec) * invDet);
-	// check if intersection is behind the ray origin
-	if (bCull && t < -ZEROTOLERANCE<TYPE>())
-		return false;
-	if (pt)
-		*pt = t;
+
+	if (t)
+		*t = (edge2.dot(qvec)) / det;
+
 	return true;
 } // Intersects(Tri)
 /*----------------------------------------------------------------*/
@@ -926,25 +922,25 @@ bool TestRayTriangleIntersection(unsigned iters) {
 	typedef SEACAVE::TRay<TYPE,3> Ray;
 	typedef typename Ray::POINT Point;
 	typedef typename Point::Scalar Type;
-	constexpr Type zeroEps(std::is_same<TYPE,float>::value ? 0.01f : 0.00001f);
-	for (unsigned iter=0, lives=iters/100; iter<iters; ++iter) {
+	constexpr Type zeroEps(ZEROTOLERANCE<Type>() * 1000);
+	for (unsigned iter=0; iter<iters; ++iter) {
 		const Type scale(10);
 		const Triangle triangle(Point::Random()*scale, Point::Random()*scale, Point::Random()*scale);
 		Type t;
 		const Point center(triangle.GetCenter());
 		const Ray rayCenter(Point::Random()*scale, center, true);
-		if (!rayCenter.template Intersects<false>(triangle, &t) && !lives--)
+		if (!rayCenter.template Intersects<false>(triangle, &t))
 			return false;
 		const Point _center(rayCenter.GetPoint(t));
-		if ((_center-center).norm() > zeroEps && !lives--)
+		if ((_center-center).norm() > zeroEps)
 			return false;
 		const BYTE o((BYTE)(RAND()%3));
-		const Point side(((triangle[o].template cast<double>()+triangle[(o+1)%3].template cast<double>()) / 2.0).template cast<TYPE>());
+		const Point side((triangle[o]+triangle[(o+1)%3]) / TYPE(2));
 		const Ray raySide(rayCenter.m_pOrig, side, true);
-		if (!raySide.template Intersects<false>(triangle, &t) && !lives--)
+		if (!raySide.template Intersects<false>(triangle, &t))
 			return false;
 		const Point _side(raySide.GetPoint(t));
-		if ((_side-side).norm() > zeroEps && !lives--)
+		if ((_side-side).norm() > zeroEps)
 			return false;
 	}
 	return true;

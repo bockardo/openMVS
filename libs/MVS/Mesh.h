@@ -71,9 +71,8 @@ public:
 	typedef TPoint2<Type> TexCoord;
 	typedef SEACAVE::cList<TexCoord,const TexCoord&,0,8192,FIndex> TexCoordArr;
 
-	typedef uint8_t TexIndex;
-	typedef SEACAVE::cList<TexIndex,const TexIndex&,0,8192,FIndex> TexIndexArr;
-	typedef SEACAVE::cList<Image8U3,const Image8U3&,2,4,TexIndex> Image8U3Arr;
+	typedef uint8_t TexChunk;
+	typedef SEACAVE::cList<TexChunk,const TexChunk&,0,8192,FIndex> TexChunkArr;
 
 	typedef TPoint3<FIndex> FaceFaces;
 	typedef SEACAVE::cList<FaceFaces,const FaceFaces&,0,8192,FIndex> FaceFacesArr;
@@ -126,46 +125,42 @@ public:
 
 	NormalArr vertexNormals; // for each vertex, the normal to the surface in that point (optional)
 	VertexVerticesArr vertexVertices; // for each vertex, the list of adjacent vertices (optional)
-	VertexFacesArr vertexFaces; // for each vertex, the ordered list of faces containing it (optional)
+	VertexFacesArr vertexFaces; // for each vertex, the list of faces containing it (optional)
 	BoolArr vertexBoundary; // for each vertex, stores if it is at the boundary or not (optional)
 
 	NormalArr faceNormals; // for each face, the normal to it (optional)
 	FaceFacesArr faceFaces; // for each face, the list of adjacent faces, NO_ID for border edges (optional)
-	TexCoordArr faceTexcoords; // for each face, the texture-coordinates corresponding to its vertices, 3x num faces OR for each vertex (optional)
-	TexIndexArr faceTexindices; // for each face, the corresponding index of the texture (optional)
+	TexCoordArr faceTexcoords; // for each face, the texture-coordinates corresponding to the contained vertices (optional)
 
-	Image8U3Arr texturesDiffuse; // textures containing the diffuse color (optional)
+	Image8U3 textureDiffuse; // texture containing the diffuse color (optional)
 
 	#ifdef _USE_CUDA
-	static SEACAVE::CUDA::KernelRT kernelComputeFaceNormal;
+	static CUDA::KernelRT kernelComputeFaceNormal;
 	#endif
 
 public:
 	#ifdef _USE_CUDA
 	inline Mesh() {
-		InitKernels(SEACAVE::CUDA::desiredDeviceID);
+		InitKernels(CUDA::desiredDeviceID);
 	}
 	#endif
 
 	void Release();
 	void ReleaseExtra();
-	void ReleaseComputable();
 	void EmptyExtra();
-	Mesh& Swap(Mesh&);
-	Mesh& Join(const Mesh&);
-	bool IsEmpty() const { return vertices.empty(); }
+	void Swap(Mesh&);
+	void Join(const Mesh&);
+	inline bool IsEmpty() const { return vertices.empty(); }
 	bool IsWatertight();
-	bool HasTexture() const { return HasTextureCoordinates() && !texturesDiffuse.empty(); }
-	bool HasTextureCoordinates() const { ASSERT(faceTexcoords.empty() || faces.size()*3 == faceTexcoords.size() || vertices.size() == faceTexcoords.size()); return !faceTexcoords.empty(); }
-	bool HasTextureCoordinatesPerVertex() const { return !faceTexcoords.empty() && vertices.size() == faceTexcoords.size(); }
+	inline bool HasTexture() const { ASSERT(faceTexcoords.empty() == textureDiffuse.empty()); return !faceTexcoords.empty(); }
 
 	Box GetAABB() const;
 	Box GetAABB(const Box& bound) const;
 	Vertex GetCenter() const;
 
-	void ListIncidentVertices();
-	void ListIncidentFaces();
-	void ListIncidentFaceFaces();
+	void ListIncidenteVertices();
+	void ListIncidenteFaces();
+	void ListIncidenteFaceFaces();
 	void ListBoundaryVertices();
 	void ComputeNormalFaces();
 	void ComputeNormalVertices();
@@ -175,12 +170,10 @@ public:
 	void GetEdgeFaces(VIndex, VIndex, FaceIdxArr&) const;
 	void GetFaceFaces(FIndex, FaceIdxArr&) const;
 	void GetEdgeVertices(FIndex, FIndex, uint32_t vs0[2], uint32_t vs1[2]) const;
-	bool GetEdgeOrientation(FIndex, VIndex, VIndex) const;
-	FIndex GetEdgeAdjacentFace(FIndex, VIndex, VIndex) const;
 	void GetAdjVertices(VIndex, VertexIdxArr&) const;
 	void GetAdjVertexFaces(VIndex, VIndex, FaceIdxArr&) const;
 
-	unsigned FixNonManifold(float magDisplacementDuplicateVertices=0.01f, VertexIdxArr* duplicatedVertices=NULL);
+	bool FixNonManifold();
 	void Clean(float fDecimate=0.7f, float fSpurious=10.f, bool bRemoveSpikes=true, unsigned nCloseHoles=30, unsigned nSmoothMesh=2, float fEdgeLength=0, bool bLastClean=true);
 
 	void EnsureEdgeSize(float minEdge=-0.5f, float maxEdge=-4.f, float collapseRatio=0.2, float degenerate_angle_deg=150, int mode=1, int max_iters=50);
@@ -190,17 +183,12 @@ public:
 	void Decimate(VertexIdxArr& verticesRemove);
 	void CloseHole(VertexIdxArr& vertsLoop);
 	void CloseHoleQuality(VertexIdxArr& vertsLoop);
-	FIndex RemoveDegenerateFaces(Type thArea=1e-10f);
-	FIndex RemoveDegenerateFaces(unsigned maxIterations, Type thArea=1e-10f);
 	void RemoveFacesOutside(const OBB3f&);
 	void RemoveFaces(FaceIdxArr& facesRemove, bool bUpdateLists=false);
 	void RemoveVertices(VertexIdxArr& vertexRemove, bool bUpdateLists=false);
-	VIndex RemoveDuplicatedVertices(VertexIdxArr* duplicatedVertices=NULL);
 	VIndex RemoveUnreferencedVertices(bool bUpdateLists=false);
-	std::vector<Mesh> SplitMeshPerTextureBlob() const;
 	void ConvertTexturePerVertex(Mesh&) const;
 
-	TexIndex GetFaceTextureIndex(FIndex idxF) const { return faceTexindices.empty() ? 0 : faceTexindices[idxF]; }
 	void FaceTexcoordsNormalize(TexCoordArr& newFaceTexcoords, bool flipY=true) const;
 	void FaceTexcoordsUnnormalize(TexCoordArr& newFaceTexcoords, bool flipY=true) const;
 
@@ -238,7 +226,7 @@ public:
 	bool Split(FacesChunkArr&, float maxArea);
 	Mesh SubMesh(const FaceIdxArr& faces) const;
 
-	bool TransferTexture(Mesh& mesh, const FaceIdxArr& faceSubsetIndices={}, unsigned borderSize=3, unsigned textureSize=4096);
+	bool TransferTexture(Mesh& mesh, const FaceIdxArr& faceSubsetIndices={}, unsigned borderSize=3, unsigned textureSize=1024);
 
 	// file IO
 	bool Load(const String& fileName);
@@ -276,8 +264,7 @@ protected:
 		ar & vertexBoundary;
 		ar & faceNormals;
 		ar & faceTexcoords;
-		ar & faceTexindices;
-		ar & texturesDiffuse;
+		ar & textureDiffuse;
 	}
 	#endif
 };
@@ -287,15 +274,12 @@ protected:
 // used to render a 3D triangle
 template <typename DERIVED>
 struct TRasterMeshBase {
-	typedef DERIVED Rasterizer;
-
-	struct Triangle {
-		Point3 ptc[3];
-		Point2f pti[3];
-	};
-	
 	const Camera& camera;
+
 	DepthMap& depthMap;
+
+	Point3 ptc[3];
+	Point2f pti[3];
 
 	TRasterMeshBase(const Camera& _camera, DepthMap& _depthMap)
 		: camera(_camera), depthMap(_depthMap) {}
@@ -307,39 +291,27 @@ struct TRasterMeshBase {
 		return depthMap.size();
 	}
 
-	inline bool ProjectVertex(const Point3f& pt, int v, Triangle& t) {
-		return (t.ptc[v] = camera.TransformPointW2C(Cast<REAL>(pt))).z > 0 &&
-			depthMap.isInsideWithBorder<float,3>(t.pti[v] = camera.TransformPointC2I(t.ptc[v]));
+	inline bool ProjectVertex(const Point3f& pt, int v) {
+		return (ptc[v] = camera.TransformPointW2C(Cast<REAL>(pt))).z > 0 &&
+			depthMap.isInsideWithBorder<float,3>(pti[v] = camera.TransformPointC2I(ptc[v]));
 	}
 
-	inline Point3f PerspectiveCorrectBarycentricCoordinates(const Triangle& t, const Point3f& bary) {
-		return SEACAVE::PerspectiveCorrectBarycentricCoordinates(bary, (float)t.ptc[0].z, (float)t.ptc[1].z, (float)t.ptc[2].z);
+	inline Point3f PerspectiveCorrectBarycentricCoordinates(const Point3f& bary) {
+		return SEACAVE::PerspectiveCorrectBarycentricCoordinates(bary, (float)ptc[0].z, (float)ptc[1].z, (float)ptc[2].z);
 	}
-	inline float ComputeDepth(const Triangle& t, const Point3f& pbary) {
-		return pbary[0]*(float)t.ptc[0].z + pbary[1]*(float)t.ptc[1].z + pbary[2]*(float)t.ptc[2].z;
+	inline float ComputeDepth(const Point3f& pbary) {
+		return pbary[0]*(float)ptc[0].z + pbary[1]*(float)ptc[1].z + pbary[2]*(float)ptc[2].z;
 	}
-	void Raster(const ImageRef& pt, const Triangle& t, const Point3f& bary) {
-		const Point3f pbary(PerspectiveCorrectBarycentricCoordinates(t, bary));
-		const Depth z(ComputeDepth(t, pbary));
+	void Raster(const ImageRef& pt, const Point3f& bary) {
+		const Point3f pbary(PerspectiveCorrectBarycentricCoordinates(bary));
+		const Depth z(ComputeDepth(pbary));
 		ASSERT(z > Depth(0));
 		Depth& depth = depthMap(pt);
 		if (depth == 0 || depth > z)
 			depth = z;
 	}
-
-	struct TriangleRasterizer {
-		Triangle& triangle;
-		Rasterizer& rasterizer;
-		TriangleRasterizer(Triangle& t, Rasterizer& r) : triangle(t), rasterizer(r) {}
-		inline cv::Size Size() const {
-			return rasterizer.Size();
-		}
-		inline void operator()(const ImageRef& pt, const Point3f& bary) const {
-			rasterizer.Raster(pt, triangle, bary);
-		}
-	};
-	inline TriangleRasterizer CreateTriangleRasterizer(Triangle& triangle) {
-		return TriangleRasterizer(triangle, *static_cast<DERIVED*>(this));
+	inline void operator()(const ImageRef& pt, const Point3f& bary) {
+		static_cast<DERIVED*>(this)->Raster(pt, bary);
 	}
 };
 
@@ -347,34 +319,29 @@ struct TRasterMeshBase {
 template <typename DERIVED>
 struct TRasterMesh : TRasterMeshBase<DERIVED> {
 	typedef TRasterMeshBase<DERIVED> Base;
-	using typename Base::Triangle;
 
 	using Base::camera;
 	using Base::depthMap;
+
+	using Base::ptc;
+	using Base::pti;
 
 	const Mesh::VertexArr& vertices;
 
 	TRasterMesh(const Mesh::VertexArr& _vertices, const Camera& _camera, DepthMap& _depthMap)
 		: Base(_camera, _depthMap), vertices(_vertices) {}
 
-	template <typename TriangleRasterizer>
-	void Project(const Mesh::Face& facet, TriangleRasterizer& tr) {
+	void Project(const Mesh::Face& facet) {
 		// project face vertices to image plane
 		for (int v=0; v<3; ++v) {
 			// skip face if not completely inside
-			if (!static_cast<DERIVED*>(this)->ProjectVertex(vertices[facet[v]], v, tr.triangle))
+			if (!static_cast<DERIVED*>(this)->ProjectVertex(vertices[facet[v]], v))
 				return;
 		}
 		// draw triangle
-		Image8U3::RasterizeTriangleBary(tr.triangle.pti[0], tr.triangle.pti[1], tr.triangle.pti[2], tr);
-	}
-	void Project(const Mesh::Face& facet) {
-		Triangle triangle;
-		Project(facet, this->CreateTriangleRasterizer(triangle));
+		Image8U3::RasterizeTriangleBary(pti[0], pti[1], pti[2], *this);
 	}
 };
-
-bool TestMeshProjectionMT(const Mesh& mesh, const Image& image);
 /*----------------------------------------------------------------*/
 
 

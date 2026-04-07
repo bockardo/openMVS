@@ -56,8 +56,7 @@ public:
 	String name;
 
 	String sceneName;
-	String geometryName;
-	bool geometryMesh;
+	String meshName;
 	MVS::Scene scene;
 	Window window;
 	ImageArr images; // scene photos
@@ -68,7 +67,7 @@ public:
 	Point3fArr obbPoints;
 
 	GLuint listPointCloud;
-	CLISTDEF0IDX(GLuint,MVS::Mesh::TexIndex) listMeshes;
+	GLuint listMesh;
 
 	// multi-threading
 	static SEACAVE::EventQueue events; // internal events queue (processed by the working threads)
@@ -86,14 +85,13 @@ public:
 	inline bool IsOpen() const { return IsValid() && !scene.IsEmpty(); }
 	inline bool IsOctreeValid() const { return !octPoints.IsEmpty() || !octMesh.IsEmpty(); }
 
-	bool Init(const cv::Size&, LPCTSTR windowName, LPCTSTR fileName=NULL, LPCTSTR geometryFileName=NULL);
-	bool Open(LPCTSTR fileName, LPCTSTR geometryFileName=NULL);
+	bool Init(const cv::Size&, LPCTSTR windowName, LPCTSTR fileName=NULL, LPCTSTR meshFileName=NULL);
+	bool Open(LPCTSTR fileName, LPCTSTR meshFileName=NULL);
 	bool Save(LPCTSTR fileName=NULL, bool bRescaleImages=false);
 	bool Export(LPCTSTR fileName, LPCTSTR exportType=NULL) const;
 	void CompilePointCloud();
 	void CompileMesh();
 	void CompileBounds();
-	void CropToBounds();
 
 	void Draw();
 	void Loop();

@@ -5,9 +5,9 @@ else()
 endif()
 FILE(GLOB LIBRARY_FILES_H "*.h" "*.inl")
 
-cxx_executable_with_flags(InterfaceMetashape "Apps" "${cxx_default}" "MVS;${OpenMVS_EXTRA_LIBS}" ${LIBRARY_FILES_C} ${LIBRARY_FILES_H})
+cxx_executable_with_flags(InterfaceVisualSFM "Apps" "${cxx_default}" "MVS;${OpenMVS_EXTRA_LIBS}" ${LIBRARY_FILES_C} ${LIBRARY_FILES_H})
 
 # Install
-INSTALL(TARGETS InterfaceMetashape
+INSTALL(TARGETS InterfaceVisualSFM
 	EXPORT OpenMVSTargets
 	RUNTIME DESTINATION "${INSTALL_BIN_DIR}" COMPONENT bin)
