@@ -31,6 +31,7 @@
 
 #include "Common.h"
 #include "DMapCache.h"
+#include <thread>
 
 using namespace MVS;
 

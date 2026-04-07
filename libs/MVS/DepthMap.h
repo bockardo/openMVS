@@ -254,6 +254,7 @@ struct MVS_API DepthData {
 	unsigned GetRef();
 	unsigned IncRef(const String& fileName);
 	unsigned DecRef();
+	size_t GetMemorySize() const;
 
 	#ifdef _USE_BOOST
 	// implement BOOST serialization

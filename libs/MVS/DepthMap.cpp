@@ -290,6 +290,22 @@ unsigned DepthData::DecRef()
 /*----------------------------------------------------------------*/
 
 
+// Compute the memory size occupied by the depth-data images (in bytes)
+size_t MVS::DepthData::GetMemorySize() const
+{
+	if (IsEmpty())
+		return 0;
+	size_t nBytes = depthMap.total() * depthMap.elemSize();
+	if (!normalMap.empty())
+		nBytes += normalMap.total() * normalMap.elemSize();
+	if (!confMap.empty())
+		nBytes += confMap.total() * confMap.elemSize();
+	if (!viewsMap.empty())
+		nBytes += viewsMap.total() * viewsMap.elemSize();
+	return nBytes;
+}
+/*----------------------------------------------------------------*/
+
 
 // S T R U C T S ///////////////////////////////////////////////////
 

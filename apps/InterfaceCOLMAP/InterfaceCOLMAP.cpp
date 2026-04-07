@@ -32,6 +32,7 @@
 #include "../../libs/MVS/Common.h"
 #include "../../libs/MVS/Scene.h"
 #include <boost/program_options.hpp>
+#include <boost/functional/hash.hpp>
 #include "endian.h"
 
 using namespace MVS;
@@ -200,14 +201,29 @@ bool Application::Initialize(size_t argc, LPCTSTR* argv)
 			OPT::strOutputFileName = _T("scene") MVS_EXT;
 	}
 
-	MVS::Initialize(APPNAME, OPT::nMaxThreads, OPT::nProcessPriority);
+	// initialize global options
+	Process::setCurrentProcessPriority((Process::Priority)OPT::nProcessPriority);
+	#ifdef _USE_OPENMP
+	if (OPT::nMaxThreads != 0)
+		omp_set_num_threads(OPT::nMaxThreads);
+	#endif
+
+	#ifdef _USE_BREAKPAD
+	// start memory dumper
+	MiniDumper::Create(APPNAME, WORKING_FOLDER);
+	#endif
+
+	Util::Init();
 	return true;
 }
 
 // finalize application instance
 void Application::Finalize()
 {
-	MVS::Finalize();
+	#if TD_VERBOSE != TD_VERBOSE_OFF
+	// print memory statistics
+	Util::LogMemoryInfo();
+	#endif
 
 	CLOSE_LOGFILE();
 	CLOSE_LOGCONSOLE();
@@ -267,10 +283,10 @@ struct Camera {
 	struct CameraHash {
 		size_t operator()(const Camera& camera) const {
 			size_t seed = std::hash<String>()(camera.model);
-			std::hash_combine(seed, camera.width);
-			std::hash_combine(seed, camera.height);
+			boost::hash_combine(seed, camera.width);
+			boost::hash_combine(seed, camera.height);
 			for (REAL p: camera.params)
-				std::hash_combine(seed, p);
+				boost::hash_combine(seed, p);
 			return seed;
 		}
 	};
@@ -760,7 +776,7 @@ bool ImportScene(const String& strFolder, const String& strOutFolder, Interface&
 			camera.C = Interface::Pos3d(0,0,0);
 			if (OPT::bNormalizeIntrinsics) {
 				// normalize camera intrinsics
-				camera.K = ScaleK<double>(camera.K, 1.0/Camera::GetNormalizationScale(colmapCamera.width, colmapCamera.height));
+				camera.K = Camera::ScaleK<double>(camera.K, 1.0/Camera::GetNormalizationScale(colmapCamera.width, colmapCamera.height));
 			} else {
 				camera.width = colmapCamera.width;
 				camera.height = colmapCamera.height;
