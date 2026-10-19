@@ -1389,7 +1389,8 @@ bool Scene::ExportChunks(const ImagesChunkArr& chunks, const String& path, ARCHI
 			Image subImage(image);
 			subImage.platformID = subPlatformID;
 			subImage.poseID = subPlatform.poses.size();
-			subImage.ID = idxImage;
+			if (subImage.ID == NO_ID)
+				subImage.ID = idxImage;
 			subset.images.emplace_back(std::move(subImage));
 			// copy pose
 			subPlatform.poses.emplace_back(platform.poses[image.poseID]);
